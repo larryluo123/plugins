@@ -43,6 +43,15 @@ class MethodChannelWebViewPlatform implements WebViewPlatformController {
       case 'onPageStarted':
         _platformCallbacksHandler.onPageStarted(call.arguments['url']);
         return null;
+      case 'onSelectText':
+        _platformCallbacksHandler.onSelectText(call.arguments['url'],call.arguments['text']);
+        return null;
+      case 'onProgressChanged':
+        _platformCallbacksHandler.onProgressChanged(call.arguments['progress']);
+        return null;
+      case 'onScrollChanged':
+        _platformCallbacksHandler.onScrollChanged(call.arguments['x'],call.arguments['y']);
+        return null;
       case 'onWebResourceError':
         _platformCallbacksHandler.onWebResourceError(
           WebResourceError(
@@ -130,6 +139,7 @@ class MethodChannelWebViewPlatform implements WebViewPlatformController {
 
   @override
   Future<String> getTitle() => _channel.invokeMethod<String>("getTitle");
+  Future<bool> webBack() => _channel.invokeMethod<bool>("webBack");
 
   @override
   Future<void> scrollTo(int x, int y) {

@@ -5,49 +5,106 @@
 package io.flutter.plugins.webviewflutter;
 
 import android.annotation.TargetApi;
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.hardware.display.DisplayManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
+import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
+import android.webkit.ValueCallback;
+import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
+import android.webkit.WebHistoryItem;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
+import io.flutter.plugin.common.PluginRegistry;
 import io.flutter.plugin.platform.PlatformView;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class FlutterWebView implements PlatformView, MethodCallHandler {
+public class FlutterWebView implements PlatformView, MethodCallHandler{
   private static final String JS_CHANNEL_NAMES_FIELD = "javascriptChannelNames";
   private final InputAwareWebView webView;
   private final MethodChannel methodChannel;
   private final FlutterWebViewClient flutterWebViewClient;
   private final Handler platformThreadHandler;
 
+  public static ValueCallback<Uri[]> uploadMessage;
+  public final static int FILE_CHOOSER_RESULT_CODE = 1;
+
   // Verifies that a url opened by `Window.open` has a secure url.
   private class FlutterWebChromeClient extends WebChromeClient {
+
+    @Override
+    public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+      if (uploadMessage != null) {
+        uploadMessage.onReceiveValue(null);
+        uploadMessage = null;
+      }
+
+      uploadMessage = filePathCallback;
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+          ((Activity) webView.getContext()).startActivityForResult(fileChooserParams.createIntent(), FILE_CHOOSER_RESULT_CODE);
+        }
+      } catch (Exception e) {
+        Log.e("FlutterWebView", "e " + e.getMessage());
+        Toast.makeText(webView.getContext(), "Cannot Open File Chooser", Toast.LENGTH_LONG).show();
+        return false;
+      }
+      return true;
+    }
+
+    @Override
+    public void onProgressChanged(WebView view, int newProgress) {
+      if(methodChannel != null){
+        Map map = new HashMap<String,Object>();
+        map.put("progress",(double)newProgress);
+        methodChannel.invokeMethod("onProgressChanged",map);
+      }
+      super.onProgressChanged(view, newProgress);
+    }
+
     @Override
     public boolean onCreateWindow(
         final WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
       final WebViewClient webViewClient =
           new WebViewClient() {
+            String referer = "";
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+              Uri currentUrl = Uri.parse(url);
+              String scheme = currentUrl.getScheme();
+              referer = scheme + "://" + currentUrl.getHost();
+              super.onPageFinished(view, url);
+            }
+
             @TargetApi(Build.VERSION_CODES.LOLLIPOP)
             @Override
             public boolean shouldOverrideUrlLoading(
                 @NonNull WebView view, @NonNull WebResourceRequest request) {
               final String url = request.getUrl().toString();
               if (!flutterWebViewClient.shouldOverrideUrlLoading(
-                  FlutterWebView.this.webView, request)) {
+                  FlutterWebView.this.webView,referer, request)) {
                 webView.loadUrl(url);
               }
               return true;
@@ -56,7 +113,7 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
               if (!flutterWebViewClient.shouldOverrideUrlLoading(
-                  FlutterWebView.this.webView, url)) {
+                  FlutterWebView.this.webView,referer, url)) {
                 webView.loadUrl(url);
               }
               return true;
@@ -83,11 +140,14 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
       Map<String, Object> params,
       View containerView) {
 
+    methodChannel = new MethodChannel(messenger, "plugins.flutter.io/webview_" + id);
+    methodChannel.setMethodCallHandler(this);
+
     DisplayListenerProxy displayListenerProxy = new DisplayListenerProxy();
     DisplayManager displayManager =
         (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
     displayListenerProxy.onPreWebViewInitialization(displayManager);
-    webView = new InputAwareWebView(context, containerView);
+    webView = new InputAwareWebView(context, containerView,methodChannel);
     displayListenerProxy.onPostWebViewInitialization(displayManager);
 
     platformThreadHandler = new Handler(context.getMainLooper());
@@ -99,8 +159,32 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
     webView.getSettings().setSupportMultipleWindows(true);
     webView.setWebChromeClient(new FlutterWebChromeClient());
 
-    methodChannel = new MethodChannel(messenger, "plugins.flutter.io/webview_" + id);
-    methodChannel.setMethodCallHandler(this);
+    if (Build.VERSION.SDK_INT >= 21) {
+      webView.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW );
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      webView.setOnScrollChangeListener(new View.OnScrollChangeListener() {
+        @Override
+        public void onScrollChange(View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
+          if(methodChannel!=null){
+            Map map = new HashMap<String,Object>();
+            map.put("x",scrollX);
+            map.put("y",scrollY);
+            methodChannel.invokeMethod("onScrollChanged",map);
+          }
+        }
+      });
+    }
+
+    webView.setOnKeyListener(new View.OnKeyListener() {
+      @Override
+      public boolean onKey(View v, int keyCode, KeyEvent event) {
+        if(keyCode == KeyEvent.KEYCODE_BACK){
+           webBack();
+        }
+        return false;
+      }
+    });
 
     flutterWebViewClient = new FlutterWebViewClient(methodChannel);
     Map<String, Object> settings = (Map<String, Object>) params.get("settings");
@@ -121,6 +205,28 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
       String url = (String) params.get("initialUrl");
       webView.loadUrl(url);
     }
+  }
+
+  private void webBack(){
+    WebBackForwardList webBackForwardList = webView.copyBackForwardList();
+    if(webBackForwardList != null){
+      WebHistoryItem itemAtIndex = webBackForwardList.getItemAtIndex(0);
+      String url = itemAtIndex.getUrl();
+      if(url != null){
+          webView.loadUrl(url);
+          webView.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+              webView.clearHistory();
+            }
+          }, 1000);
+
+        }else{
+          webView.goBack();
+        }
+      }else{
+        webView.goBack();
+      }
   }
 
   @Override
@@ -171,6 +277,10 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
   @Override
   public void onMethodCall(MethodCall methodCall, Result result) {
     switch (methodCall.method) {
+      case "webBack":
+        webBack();
+        result.success(null);
+        break;
       case "loadUrl":
         loadUrl(methodCall, result);
         break;

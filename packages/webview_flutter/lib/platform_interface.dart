@@ -29,6 +29,11 @@ abstract class WebViewPlatformCallbacksHandler {
   /// Invoked by [WebViewPlatformController] when a page has finished loading.
   void onPageFinished(String url);
 
+  /// Invoked by [WebViewPlatformController] when select text
+  void onSelectText(String url,String text);
+  void onProgressChanged(double progress);
+  void onScrollChanged(int x,int y);
+
   /// Report web resource loading error to the host application.
   void onWebResourceError(WebResourceError error);
 }
@@ -201,6 +206,11 @@ abstract class WebViewPlatformController {
 
   /// Checks whether there's a back history item.
   Future<bool> canGoBack() {
+    throw UnimplementedError(
+        "WebView canGoBack is not implemented on the current platform");
+  }
+
+  Future<bool> webBack() {
     throw UnimplementedError(
         "WebView canGoBack is not implemented on the current platform");
   }

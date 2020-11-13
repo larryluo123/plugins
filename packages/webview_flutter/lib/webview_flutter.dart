@@ -139,6 +139,13 @@ typedef FutureOr<NavigationDecision> NavigationDelegate(
 /// Signature for when a [WebView] has started loading a page.
 typedef void PageStartedCallback(String url);
 
+/// Signature for when a [WebView] select text
+typedef void PageSelectTextCallback(String url,String text);
+
+/// Signature for when a [WebView] progress
+typedef void PageOnProgressCallback(double progress);
+typedef void PageOnScrollChangedCallback(int x,int y);
+
 /// Signature for when a [WebView] has finished loading a page.
 typedef void PageFinishedCallback(String url);
 
@@ -216,6 +223,9 @@ class WebView extends StatefulWidget {
     this.navigationDelegate,
     this.gestureRecognizers,
     this.onPageStarted,
+    this.onSelectText,
+    this.onScrollChanged,
+    this.onProgressChanged,
     this.onPageFinished,
     this.onWebResourceError,
     this.debuggingEnabled = false,
@@ -332,6 +342,11 @@ class WebView extends StatefulWidget {
   ///       webview, and frames will be opened in the main frame.
   ///     * When a navigationDelegate is set HTTP requests do not include the HTTP referer header.
   final NavigationDelegate navigationDelegate;
+
+  /// Invoked when a page starts loading.
+  final PageSelectTextCallback onSelectText;
+  final PageOnProgressCallback onProgressChanged;
+  final PageOnScrollChangedCallback onScrollChanged;
 
   /// Invoked when a page starts loading.
   final PageStartedCallback onPageStarted;
@@ -558,6 +573,13 @@ class _PlatformCallbacksHandler implements WebViewPlatformCallbacksHandler {
   }
 
   @override
+  void onSelectText(String url, String text) {
+    if (_widget.onSelectText != null) {
+      _widget.onSelectText(url,text);
+    }
+  }
+
+  @override
   void onWebResourceError(WebResourceError error) {
     if (_widget.onWebResourceError != null) {
       _widget.onWebResourceError(error);
@@ -572,6 +594,16 @@ class _PlatformCallbacksHandler implements WebViewPlatformCallbacksHandler {
     for (JavascriptChannel channel in channels) {
       _javascriptChannels[channel.name] = channel;
     }
+  }
+
+  @override
+  void onProgressChanged(double progress) {
+    _widget.onProgressChanged(progress);
+  }
+
+  @override
+  void onScrollChanged(int x, int y) {
+    _widget.onScrollChanged(x,y);
   }
 }
 
@@ -622,6 +654,10 @@ class WebViewController {
   /// different URL).
   Future<String> currentUrl() {
     return _webViewPlatformController.currentUrl();
+  }
+
+  Future<bool> webBack() {
+    return _webViewPlatformController.webBack();
   }
 
   /// Checks whether there's a back history item.

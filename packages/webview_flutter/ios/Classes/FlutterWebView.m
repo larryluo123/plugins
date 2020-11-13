@@ -35,9 +35,60 @@
 @end
 
 @implementation FLTWKWebView
+FlutterMethodChannel *_methodChannel;
+
+- (instancetype)initWithChannel:(FlutterMethodChannel *)channel {
+  if (self) {
+    _methodChannel = channel;
+  }
+  return self;
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView{
+    int x = scrollView.contentOffset.x/scrollView.contentScaleFactor;
+    int y = scrollView.contentOffset.y/scrollView.contentScaleFactor;
+    [_methodChannel invokeMethod:@"onScrollChanged" arguments:@{@"x" :[NSNumber numberWithInt:x],@"y":[NSNumber numberWithInt:y]}];
+    [self setNeedsLayout];
+}
+
+#pragma mark 自定义长按菜单
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
+    if (action ==@selector(select:) ||
+        action == @selector(copy:) ||
+        action == @selector(cut:) ||
+        action == @selector(paste:) ||
+        action == @selector(customShare:)
+        ) {
+        return [super canPerformAction:action withSender:sender];
+    }
+    //return [super canPerformAction:action withSender:sender];
+    return NO;
+}
+
+
+//构建UIMenuController
+- (void)createMenu {
+    UIMenuItem *flag = [[UIMenuItem alloc] initWithTitle:@"分享" action:@selector(customShare:)];
+    UIMenuController *menu = [UIMenuController sharedMenuController];
+    [menu setMenuItems:[NSArray arrayWithObjects:flag, nil]];
+    [menu setMenuVisible:YES];
+}
+
+- (void)customShare:(id)sender{
+    [self evaluateJavaScript:@"window.getSelection().toString();"
+           completionHandler:^(_Nullable id evaluateResult, NSError* _Nullable error) {
+             if (error == nil) {
+                 NSLog(@"%@", evaluateResult);
+                 [_methodChannel invokeMethod:@"onSelectText" arguments:@{@"url" : self.URL.absoluteString,@"text":evaluateResult}];
+                 
+             }
+     }];
+}
 
 - (void)setFrame:(CGRect)frame {
+  [self createMenu];
   [super setFrame:frame];
+  self.scrollView.delegate = self;
   self.scrollView.contentInset = UIEdgeInsetsZero;
   // We don't want the contentInsets to be adjusted by iOS, flutter should always take control of
   // webview's contentInsets.
@@ -92,6 +143,10 @@
                         inConfiguration:configuration];
 
     _webView = [[FLTWKWebView alloc] initWithFrame:frame configuration:configuration];
+    [_webView initWithChannel:_channel];
+      // 给webview添加监听
+    [_webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew context:nil];
+      
     _navigationDelegate = [[FLTWKNavigationDelegate alloc] initWithChannel:_channel];
     _webView.UIDelegate = self;
     _webView.navigationDelegate = _navigationDelegate;
@@ -119,6 +174,14 @@
   return self;
 }
 
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if ([keyPath isEqual:@"estimatedProgress"] && object == _webView) {
+        [_methodChannel invokeMethod:@"onProgressChanged" arguments:@{@"progress" : change[NSKeyValueChangeNewKey]}];
+    }else{
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
 - (UIView*)view {
   return _webView;
 }
@@ -158,9 +221,15 @@
     [self getScrollX:call result:result];
   } else if ([[call method] isEqualToString:@"getScrollY"]) {
     [self getScrollY:call result:result];
-  } else {
+  }else if ([[call method] isEqualToString:@"dispose"]) {
+      [self dispose];
+    }  else {
     result(FlutterMethodNotImplemented);
   }
+}
+
+-(void)dispose{
+    [_webView removeObserver:self forKeyPath:@"estimatedProgress"];
 }
 
 - (void)onUpdateSettings:(FlutterMethodCall*)call result:(FlutterResult)result {
