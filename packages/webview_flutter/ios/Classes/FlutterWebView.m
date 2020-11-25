@@ -228,6 +228,12 @@ FlutterMethodChannel *_methodChannel;
   }
 }
 
+- (void)dealloc
+{
+    NSLog(@"webviewf dealloc");
+    [self dispose];
+}
+
 -(void)dispose{
     [_webView removeObserver:self forKeyPath:@"estimatedProgress"];
 }
