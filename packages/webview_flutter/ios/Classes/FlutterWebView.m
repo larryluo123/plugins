@@ -141,7 +141,7 @@ FlutterMethodChannel *_methodChannel;
     configuration.userContentController = userContentController;
     [self updateAutoMediaPlaybackPolicy:args[@"autoMediaPlaybackPolicy"]
                         inConfiguration:configuration];
-
+      configuration.allowsInlineMediaPlayback = YES;
     _webView = [[FLTWKWebView alloc] initWithFrame:frame configuration:configuration];
     [_webView initWithChannel:_channel];
       // 给webview添加监听
